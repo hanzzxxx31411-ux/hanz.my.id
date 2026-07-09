@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>AI Gesture Blur // Peace Sign Detector</title>
+
+<style>
+  /* ============================================================
+     RESET & BASE
+  ============================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    background: #030509;
+    color: #dffcff;
+    font-family: 'Segoe UI', 'Courier New', monospace;
+    height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    background-image:
+      linear-gradient(rgba(0, 200, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 200, 255, 0.05) 1px, transparent 1px);
+    background-size: 38px 38px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+  }
+
+  /* ============================================================
+     HEADER
+  ============================================================ */
+  header { text-align: center; margin-bottom: 16px; }
+  header h1 {
+    font-size: clamp(1.3rem, 4vw, 2.2rem);
+    letter-spacing: 2px;
+    color: #58e7ff;
+    text-shadow: 0 0 6px #58e7ff, 0 0 18px #2fb8ff, 0 0 32px #7b5cff;
+    animation: flicker 4s infinite alternate;
+  }
+  header p {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+    color: #c9a8ff;
+    text-shadow: 0 0 8px #9b6dff;
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    48% { opacity: 0.92; }
+    50% { opacity: 0.68; }
+    52% { opacity: 0.96; }
+  }
+
+  /* ============================================================
+     CARD UTAMA
+  ============================================================ */
+  .card {
+    width: 100%;
+    max-width: 520px;
+    background: linear-gradient(160deg, #0a0f18, #060a10);
+    border: 1px solid rgba(88, 231, 255, 0.2);
+    border-radius: 20px;
+    padding: 14px;
+    box-shadow: 0 0 22px rgba(0,200,255,0.1), 0 0 45px rgba(140,80,255,0.08) inset;
+  }
+
+  /* ============================================================
+     AREA KAMERA
+  ============================================================ */
+  .video-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #000;
+    border: 2px solid rgba(88, 231, 255, 0.32);
+    box-shadow: 0 0 25px rgba(0,220,255,0.3), 0 0 55px rgba(140,80,255,0.18);
+  }
+
+  /* Video kamera live — efek blur diterapkan langsung via CSS filter
+     dengan transition supaya munculnya halus (bukan instan) */
+  #inputVideo {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror agar terasa seperti cermin */
+    filter: blur(0px);
+    transition: filter 0.5s ease; /* animasi transisi blur yang halus */
+  }
+  #inputVideo.blurred {
+    filter: blur(18px);
+  }
+
+  .scanline {
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      to bottom, rgba(0,255,220,0.03) 0px, rgba(0,255,220,0.03) 1px,
+      transparent 2px, transparent 4px
+    );
+    pointer-events: none;
+  }
+
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #3d6b78; font-size: 0.85rem; letter-spacing: 1px;
+    text-align: center; padding: 24px;
+    z-index: 2;
+  }
+
+  /* ---- Indikator Blur ON/OFF di pojok video ---- */
+  #blurIndicator {
+    position: absolute;
+    top: 12px; left: 12px;
+    z-index: 15;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,77,109,0.5);
+    color: #ff4d6d;
+    text-shadow: 0 0 8px #ff4d6d;
+    transition: all 0.35s ease; /* transisi halus saat berubah status */
+  }
+  #blurIndicator.on {
+    border-color: #22ff8c;
+    color: #22ff8c;
+    text-shadow: 0 0 10px #22ff8c;
+    box-shadow: 0 0 15px rgba(34,255,140,0.4);
+  }
+
+  /* ============================================================
+     GESTURE PANEL (badge status gesture)
+  ============================================================ */
+  .gesture-panel {
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+  }
+  .gesture-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 18px;
+    border-radius: 30px;
+    background: rgba(88,231,255,0.06);
+    border: 1px solid rgba(88,231,255,0.25);
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    color: #6f95a3;
+    transition: all 0.3s ease;
+  }
+  .gesture-badge.active {
+    color: #22ff8c;
+    border-color: #22ff8c;
+    background: rgba(34,255,140,0.08);
+    box-shadow: 0 0 15px rgba(34,255,140,0.4);
+    animation: badgePulse 1s infinite;
+  }
+  @keyframes badgePulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(34,255,140,0.3); }
+    50% { box-shadow: 0 0 22px rgba(34,255,140,0.6); }
+  }
+
+  /* ============================================================
+     STATUS BAR
+  ============================================================ */
+  .status-bar {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .status-pill {
+    flex: 1; min-width: 130px;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(5,15,20,0.6);
+    border: 1px solid rgba(88,231,255,0.15);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 0.76rem;
+    letter-spacing: 0.5px;
+    color: #a9e9ff;
+  }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #ff3b5c;
+    box-shadow: 0 0 8px #ff3b5c, 0 0 16px #ff3b5c;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+  }
+  .dot.active { background: #22ff8c; box-shadow: 0 0 8px #22ff8c, 0 0 18px #22ff8c; }
+  .dot.loading { background: #ffd24d; box-shadow: 0 0 8px #ffd24d, 0 0 18px #ffd24d; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0.3; } }
+
+  /* ============================================================
+     KONTROL / TOMBOL
+  ============================================================ */
+  .controls {
+    margin-top: 14px;
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  button {
+    cursor: pointer; border: none; outline: none;
+    padding: 11px 24px; font-size: 0.9rem; font-weight: bold;
+    letter-spacing: 1px; border-radius: 30px;
+    background: rgba(0,0,0,0.4);
+    transition: all 0.2s ease;
+  }
+  #startBtn { color: #22ff8c; border: 1px solid #22ff8c; box-shadow: 0 0 10px rgba(34,255,140,0.35); }
+  #startBtn:hover:not(:disabled) { background: #22ff8c; color: #04070a; box-shadow: 0 0 20px #22ff8c; }
+  #stopBtn { color: #ff4d6d; border: 1px solid #ff4d6d; box-shadow: 0 0 10px rgba(255,77,109,0.35); }
+  #stopBtn:hover:not(:disabled) { background: #ff4d6d; color: #04070a; box-shadow: 0 0 20px #ff4d6d; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  footer {
+    margin-top: 18px;
+    font-size: 0.72rem;
+    color: #3d5560;
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+
+  /* ============================================================
+     PANEL PEMUTAR MUSIK (music.mp3 lokal)
+  ============================================================ */
+  .music-panel {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(183, 139, 255, 0.06);
+    border: 1px solid rgba(183, 139, 255, 0.25);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .music-panel .music-title {
+    font-size: 0.78rem;
+    letter-spacing: 1px;
+    color: #b78bff;
+    text-shadow: 0 0 8px #b78bff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  /* Tombol mute/unmute berbentuk lingkaran kecil */
+  #muteBtn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    color: #58e7ff;
+    border: 1px solid #58e7ff;
+    background: rgba(0,0,0,0.4);
+    box-shadow: 0 0 8px rgba(88,231,255,0.3);
+    flex-shrink: 0;
+  }
+  #muteBtn:hover { background: #58e7ff; color: #04070a; box-shadow: 0 0 16px #58e7ff; }
+  #muteBtn.muted { color: #ff4d6d; border-color: #ff4d6d; box-shadow: 0 0 8px rgba(255,77,109,0.3); }
+  #muteBtn.muted:hover { background: #ff4d6d; color: #04070a; }
+
+  /* Slider volume bertema neon */
+  #volumeSlider {
+    flex: 1;
+    min-width: 100px;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 5px;
+    border-radius: 6px;
+    background: rgba(183,139,255,0.15);
+    outline: none;
+  }
+  #volumeSlider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: #b78bff;
+    box-shadow: 0 0 8px #b78bff, 0 0 14px #b78bff;
+    cursor: pointer;
+  }
+  #volumeSlider::-moz-range-thumb {
+    width: 15px; height: 15px;
+    border: none;
+    border-radius: 50%;
+    background: #b78bff;
+    box-shadow: 0 0 8px #b78bff, 0 0 14px #b78bff;
+    cursor: pointer;
+  }
+
+  #musicStatusText {
+    font-size: 0.72rem;
+    color: #6f95a3;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    min-width: 90px;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <h1>FOTO KITA BLUR✌</h1>
+    <p>2026 Hanxz Vision AI • Version 1.0
+Developed by Rayhan</p>
+  </header>
+
+  <div class="card">
+    <div class="video-wrapper">
+      <!-- Video kamera live. Blur diterapkan langsung ke elemen ini via CSS filter -->
+      <video id="inputVideo" autoplay muted playsinline></video>
+      <div class="scanline"></div>
+      <div class="placeholder" id="placeholderText">📷 Tekan "Start Camera" untuk memulai</div>
+
+      <!-- Indikator status blur -->
+      <div id="blurIndicator">⬤ Blur OFF</div>
+    </div>
+
+    <!-- Badge status gesture -->
+    <div class="gesture-panel">
+      <div class="gesture-badge" id="gestureBadge">✌️ Gesture Tidak Terdeteksi</div>
+    </div>
+
+    <!-- Status bar: kamera & AI -->
+    <div class="status-bar">
+      <div class="status-pill"><div id="camDot" class="dot"></div><span id="camStatusText">Kamera Nonaktif</span></div>
+      <div class="status-pill"><div id="aiDot" class="dot"></div><span id="aiStatusText">Model Belum Dimuat</span></div>
+    </div>
+
+    <!-- Kontrol kamera -->
+    <div class="controls">
+      <button id="startBtn">▶ Start Camera</button>
+      <button id="stopBtn" disabled>⏹ Stop Camera</button>
+    </div>
+
+    <!-- ============================================================
+         PEMUTAR MUSIK LOKAL (music.mp3) — otomatis putar saat kamera aktif
+    ============================================================ -->
+    <div class="music-panel">
+      <span class="music-title">🎵 Musik</span>
+      <button id="muteBtn" title="Mute/Unmute">🔊</button>
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.6" title="Volume" />
+      <span id="musicStatusText">Musik Berhenti</span>
+    </div>
+  </div>
+
+  <!-- File audio lokal: music.mp3 harus berada di folder yang sama dengan file HTML ini -->
+  <audio id="bgMusic" src="music.mp3" loop preload="auto"></audio>
+
+  <footer>Berjalan 100% di browser (MediaPipe Hands) — tanpa server backend, tanpa capture/screenshot.</footer>
+
+  <!-- ============================================================
+       LIBRARY AI (CDN) — MediaPipe Hands
+  ============================================================ -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+  <script>
+  /* ==================================================================
+     ELEMEN DOM
+  ================================================================== */
+  const videoEl = document.getElementById('inputVideo');
+  const placeholderText = document.getElementById('placeholderText');
+  const blurIndicator = document.getElementById('blurIndicator');
+  const gestureBadge = document.getElementById('gestureBadge');
+
+  const camDot = document.getElementById('camDot');
+  const camStatusText = document.getElementById('camStatusText');
+  const aiDot = document.getElementById('aiDot');
+  const aiStatusText = document.getElementById('aiStatusText');
+
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+
+  // Elemen pemutar musik lokal
+  const bgMusic = document.getElementById('bgMusic');
+  const muteBtn = document.getElementById('muteBtn');
+  const volumeSlider = document.getElementById('volumeSlider');
+  const musicStatusText = document.getElementById('musicStatusText');
+
+  /* ==================================================================
+     STATE APLIKASI
+  ================================================================== */
+  let handsModel = null;
+  let mediaStream = null;
+  let running = false;     // status kamera & loop deteksi
+  let processing = false;  // guard supaya frame tidak tumpuk
+  let latestHandLandmarks = [];
+  let isMuted = false;     // status mute independen dari volume slider
+
+  /* ==================================================================
+     UTIL: JARAK ANTAR 2 TITIK LANDMARK
+  ================================================================== */
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  /* ==================================================================
+     CEK APAKAH SATU JARI "EXTENDED" (lurus/terangkat)
+     Dihitung dari perbandingan jarak ujung jari (tip) vs sendi tengah (pip)
+     terhadap pergelangan tangan — cukup tahan terhadap rotasi tangan.
+  ================================================================== */
+  function isFingerExtended(landmarks, tipIdx, pipIdx) {
+    const wrist = landmarks[0];
+    return dist(landmarks[tipIdx], wrist) > dist(landmarks[pipIdx], wrist) * 1.15;
+  }
+
+  /* ==================================================================
+     DETEKSI GESTURE ✌️ (PEACE SIGN):
+     - Telunjuk & jari tengah terangkat (extended)
+     - Jari manis & kelingking tertekuk (tidak extended)
+  ================================================================== */
+  function detectPeaceSign(handsArray) {
+    if (!handsArray || handsArray.length === 0) return false;
+    return handsArray.some(landmarks => {
+      const indexExt = isFingerExtended(landmarks, 8, 6);
+      const middleExt = isFingerExtended(landmarks, 12, 10);
+      const ringExt = isFingerExtended(landmarks, 16, 14);
+      const pinkyExt = isFingerExtended(landmarks, 20, 18);
+      return indexExt && middleExt && !ringExt && !pinkyExt;
+    });
+  }
+
+  /* ==================================================================
+     INISIALISASI MODEL MEDIAPIPE HANDS
+  ================================================================== */
+  function loadModel() {
+    aiDot.className = 'dot loading';
+    aiStatusText.textContent = 'Memuat Model AI...';
+
+    handsModel = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    handsModel.setOptions({
+      maxNumHands: 1,          // cukup 1 tangan untuk gesture ini
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+    handsModel.onResults((results) => {
+      latestHandLandmarks = results.multiHandLandmarks || [];
+
+      // Model dianggap siap setelah hasil pertama diterima
+      if (aiStatusText.textContent !== 'Model AI Siap') {
+        aiDot.className = 'dot active';
+        aiStatusText.textContent = 'Model AI Siap';
+      }
+
+      // Update efek blur & indikator berdasarkan hasil deteksi terbaru
+      applyBlurState(detectPeaceSign(latestHandLandmarks));
+    });
+  }
+
+  /* ==================================================================
+     TERAPKAN / LEPAS EFEK BLUR SESUAI STATUS GESTURE
+     Transisi halus ditangani otomatis oleh CSS `transition: filter`
+     pada elemen video, jadi di sini cukup toggle class saja.
+  ================================================================== */
+  function applyBlurState(isPeaceDetected) {
+    videoEl.classList.toggle('blurred', isPeaceDetected);
+
+    blurIndicator.classList.toggle('on', isPeaceDetected);
+    blurIndicator.textContent = isPeaceDetected ? '⬤ Blur ON' : '⬤ Blur OFF';
+
+    gestureBadge.classList.toggle('active', isPeaceDetected);
+    gestureBadge.textContent = isPeaceDetected ? '✌️ Gesture Terdeteksi!' : '✌️ Gesture Tidak Terdeteksi';
+  }
+
+  /* ==================================================================
+     PEMUTAR MUSIK LOKAL (music.mp3)
+     - Diputar otomatis saat kamera berhasil aktif, loop selama kamera nyala
+     - Dihentikan & direset ke awal saat kamera dimatikan
+     - Volume & mute dikontrol independen dari status kamera
+  ================================================================== */
+  function playMusic() {
+    bgMusic.volume = parseFloat(volumeSlider.value);
+    bgMusic.muted = isMuted;
+    bgMusic.currentTime = 0;
+    bgMusic.loop = true;
+
+    // play() mengembalikan Promise; browser bisa menolak jika belum ada interaksi user,
+    // namun karena musik dipicu oleh klik tombol "Start Camera", ini sudah dianggap interaksi.
+    bgMusic.play()
+      .then(() => { musicStatusText.textContent = 'Musik Diputar'; })
+      .catch((err) => {
+        musicStatusText.textContent = 'Gagal Memutar Musik';
+        console.error('Tidak bisa memutar music.mp3. Pastikan file ada di folder project:', err);
+      });
+  }
+
+  function stopMusic() {
+    bgMusic.pause();
+    bgMusic.currentTime = 0; // kembali ke awal sesuai permintaan
+    musicStatusText.textContent = 'Musik Berhenti';
+  }
+
+  // Kontrol volume via slider
+  volumeSlider.addEventListener('input', () => {
+    bgMusic.volume = parseFloat(volumeSlider.value);
+    // Jika user menaikkan volume dari 0 sambil dalam kondisi mute, otomatis unmute
+    if (isMuted && parseFloat(volumeSlider.value) > 0) {
+      isMuted = false;
+      bgMusic.muted = false;
+      muteBtn.classList.remove('muted');
+      muteBtn.textContent = '🔊';
+    }
+  });
+
+  // Tombol Mute/Unmute
+  muteBtn.addEventListener('click', () => {
+    isMuted = !isMuted;
+    bgMusic.muted = isMuted;
+    muteBtn.classList.toggle('muted', isMuted);
+    muteBtn.textContent = isMuted ? '🔇' : '🔊';
+  });
+
+  /* ==================================================================
+     START KAMERA
+  ================================================================== */
+  async function startCamera() {
+    try {
+      startBtn.disabled = true;
+      camStatusText.textContent = 'Meminta Izin Kamera...';
+
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: 640, height: 480 },
+        audio: false
+      });
+
+      videoEl.srcObject = mediaStream;
+      await videoEl.play();
+
+      placeholderText.style.display = 'none';
+      camDot.classList.add('active');
+      camStatusText.textContent = 'Kamera Aktif';
+      stopBtn.disabled = false;
+
+      if (!handsModel) loadModel(); // muat model AI hanya sekali
+
+      running = true;
+      requestAnimationFrame(detectLoop);
+
+      // Kamera berhasil aktif -> putar musik lokal (music.mp3) secara loop
+      playMusic();
+
+    } catch (err) {
+      startBtn.disabled = false;
+      camStatusText.textContent = 'Kamera Nonaktif';
+      alert('Gagal mengakses kamera: ' + err.message + '\nPastikan izin kamera diberikan dan situs menggunakan HTTPS.');
+      console.error(err);
+    }
+  }
+
+  /* ==================================================================
+     STOP KAMERA
+  ================================================================== */
+  function stopCamera() {
+    running = false;
+
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      mediaStream = null;
+    }
+    videoEl.srcObject = null;
+
+    placeholderText.style.display = 'flex';
+    camDot.classList.remove('active');
+    camStatusText.textContent = 'Kamera Nonaktif';
+
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+
+    // Reset efek blur & indikator ke kondisi awal
+    latestHandLandmarks = [];
+    applyBlurState(false);
+
+    // Kamera dimatikan -> hentikan musik & kembalikan ke awal
+    stopMusic();
+  }
+
+  /* ==================================================================
+     LOOP DETEKSI UTAMA — mengirim frame video ke MediaPipe Hands
+     secara berkelanjutan selama kamera aktif (real-time).
+  ================================================================== */
+  async function detectLoop() {
+    if (!running) return;
+    requestAnimationFrame(detectLoop);
+
+    if (processing) return; // lewati frame ini jika masih memproses frame sebelumnya
+    processing = true;
+
+    try {
+      await handsModel.send({ image: videoEl });
+      // Hasil deteksi & update blur ditangani di callback onResults (loadModel)
+    } catch (err) {
+      console.error('Error saat deteksi tangan:', err);
+    } finally {
+      processing = false;
+    }
+  }
+
+  /* ==================================================================
+     EVENT LISTENERS
+  ================================================================== */
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+  window.addEventListener('beforeunload', stopCamera);
+  </script>
+
+</body>
+</html>
